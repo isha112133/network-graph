@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Network Graph</title>
+    <style>
+      #cy {
+        width: 100%;
+        height: 90vh;
+        border: 5px solid #f9f9f9;
+        background-color: transparent;
+      }
+      #kcore-slider {
+        width: 70%;
+      }
+      #kcore-info {
+        margin-top: 10px;
+        font-size: 14px;
+        font-weight: bold;
+      }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.19.1/cytoscape.min.js"></script>
+  </head>
+  <body>
+    <input type="range" id="kcore-slider" min="5" max="10" value="5" />
+    <label for="kcore-slider">K-Core: <span id="kcore-value">5</span></label>
+    <div id="kcore-info"></div>
+    <div id="cy"></div>
+
+    <script>
+      fetch("/api/network-graph")
+        .then((response) => response.json())
+        .then((data) => {
+          const nodes = data.nodes.map((node) => ({
+            data: { id: node.id, label: node.label },
+          }));
+          const edges = data.edges.map((edge) => ({
+            data: { source: edge.from, target: edge.to },
+          }));
+          const kcoreInfo = document.getElementById("kcore-info");
+          console.log(kcoreInfo);
+          // kcoreInfo.innerHTML = `Min K-Core: ${data.minKCore}, Max K-Core: ${data.maxKCore}`;
+
+          const cy = cytoscape({
+            container: document.getElementById("cy"),
+            elements: { nodes, edges },
+            style: [
+              {
+                selector: "node",
+                style: { label: "data(id)", "background-color": "#66b3ff" },
+              },
+              {
+                selector: "edge",
+                style: {
+                  "line-color": "#888",
+                  "target-arrow-color": "#888",
+                  "target-arrow-shape": "triangle",
+                },
+              },
+            ],
+            layout: { name: "circle", padding: 30 },
+          });
+          // // Function to perform the k-core filtering
+          // function filterKCore(k) {
+          //   let nodesRemoved;
+
+          //   do {
+          //     nodesRemoved = false;
+
+          //     cy.nodes().forEach((node) => {
+          //       const degree = node.degree();
+
+          //       if (degree < k) {
+          //         node.remove();
+          //         nodesRemoved = true;
+          //       }
+          //     });
+
+          //     // Remove any edges connected to removed nodes
+          //     cy.edges().forEach((edge) => {
+          //       if (!edge.source().inside() || !edge.target().inside()) {
+          //         edge.remove();
+          //         nodesRemoved = true;
+          //       }
+          //     });
+          //   } while (nodesRemoved);
+          // }
+
+          // // Slider input handling
+          // const slider = document.getElementById("kcore-slider");
+          // const kcoreValueLabel = document.getElementById("kcore-value");
+
+          // slider.addEventListener("input", function () {
+          //   const k = parseInt(slider.value);
+          //   kcoreValueLabel.textContent = k;
+
+          //   cy.elements().restore(); // Restore all elements before filtering
+          //   filterKCore(k);
+          // });
+
+          // // Initial filter with default slider value
+          // filterKCore(parseInt(slider.value));
+
+          // Function to apply the k-core filter to the graph
+          function applyKCoreFilter(cy, k) {
+            // Hide all elements (nodes and edges) initially
+            cy.elements().hide();
+
+            // Create a Set to keep track of nodes that need to be removed
+            let nodesToRemove = new Set();
+
+            // Object to store the neighbors (edges) for each node
+            let nodeEdges = {};
+
+            // Iterate over each node in the graph
+            cy.nodes().forEach((node) => {
+              const id = node.id(); // Get the node's ID
+
+              // Store the incoming (in_neighbors) and outgoing (out_neighbors) neighbors for each node
+              nodeEdges[id] = {
+                in_neighbors: cy
+                  .edges(`[target="${id}"]`) // Get edges where the node is the target (incoming edges)
+                  .sources() // Get the source nodes for these edges (in-neighbors)
+                  .map((n) => n.id()), // Map the source nodes to their IDs
+                out_neighbors: cy
+                  .edges(`[source="${id}"]`) // Get edges where the node is the source (outgoing edges)
+                  .targets() // Get the target nodes for these edges (out-neighbors)
+                  .map((n) => n.id()), // Map the target nodes to their IDs
+              };
+            });
+
+            // Boolean flag to determine if the filtering process should continue
+            let continueFiltering = true;
+            while (continueFiltering) {
+              continueFiltering = false; // Assume no filtering is needed unless a node is removed
+
+              // Iterate over each node again to check if it meets the k-core condition
+              cy.nodes().forEach((node) => {
+                const id = node.id(); // Get the node's ID
+                const inDegree = nodeEdges[id].in_neighbors.length; // Get the number of in-neighbors (in-degree)
+                const outDegree = nodeEdges[id].out_neighbors.length; // Get the number of out-neighbors (out-degree)
+
+                console.log(inDegree, outDegree); // Log the degrees for debugging
+
+                // If the node's in-degree and out-degree are both less than k, mark it for removal
+                if (inDegree < k && outDegree < k) {
+                  nodesToRemove.add(id);
+                }
+              });
+
+              // Remove nodes that were marked for removal
+              nodesToRemove.forEach((nodeId) => {
+                cy.getElementById(nodeId).remove(); // Remove the node from the graph
+                delete nodeEdges[nodeId]; // Remove the node's edges from the tracking object
+                continueFiltering = true; // Set flag to true, so the filtering process continues
+              });
+
+              // Clear the Set of nodes to remove for the next iteration
+              nodesToRemove.clear();
+            }
+
+            // Show all remaining elements (nodes and edges) after filtering
+            cy.elements().show();
+          }
+
+          // Function to update the graph based on the current k-core value
+          function updateKCore(cy, k) {
+            // Update the displayed k-core value on the webpage
+            document.getElementById("kcore-value").textContent = k;
+
+            // Show all elements before applying the filter
+            cy.elements().show();
+
+            // Apply the k-core filter with the given value of k
+            applyKCoreFilter(cy, k);
+          }
+
+          // Get the slider element from the DOM
+          const slider = document.getElementById("kcore-slider");
+
+          // Add an event listener to the slider to detect changes in its value
+          slider.addEventListener("input", () => {
+            const k = parseInt(slider.value, 10); // Convert the slider value to an integer
+            updateKCore(cy, k); // Update the graph with the new k-core value
+          });
+
+          // Initial rendering of the graph with the default k-core value
+          updateKCore(cy, parseInt(slider.value, 10));
+        })
+        .catch((error) => console.error("Error:", error));
+    </script>
+  </body>
+</html>
