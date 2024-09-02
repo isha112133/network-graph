@@ -17849,6 +17849,8 @@
         );
         if (nodeIndex === -1) return;
 
+        console.log(`Deleting node with id: ${nodeIdToDelete}`);
+
         // Remove the node from the nodes list
         data.graph.elements.nodes[nodeIndex] = null;
 
@@ -17914,7 +17916,7 @@
 
         // Clone the original data to ensure we start fresh with each slider change
         const data = JSON.parse(JSON.stringify(originalData));
-
+        console.log(data, "data");
         // Apply the deletion logic based on the k-core value
         deleteNodesWithFewerThanNEdges(data, n);
 
